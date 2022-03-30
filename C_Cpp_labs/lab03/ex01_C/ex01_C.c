@@ -7,8 +7,8 @@
 #include <sys/select.h>
 #include <string.h>
 
-#define WAIT_TIME_1 2
-#define WAIT_TIME_2 5
+#define WAIT_TIME_1 1
+#define WAIT_TIME_2 3
 #define STR_NUM 5
 #define STR_SIZE 32
 #define CHLD_NUM 2
@@ -90,9 +90,9 @@ void fatherFunct(int pipesF2C[][2]){
         if((ready = select(maxfdp1, &fdsetRead, NULL, NULL, &timevalS)) < 0)
             printf("Error select\n");
         else if(ready > 0){
-            j++;
             for(i=0; i<2; i++)
                 if(FD_ISSET(pipesF2C[i][0], &fdsetRead)){
+					j++;
                     //if the pipe is full, read from it the size of the string
                     if(read(pipesF2C[i][0], &len, sizeof(int)) != sizeof(int)){
                         fprintf(stderr, "Error in Father reading the length from the pipe %d\n", i+1);
@@ -147,7 +147,7 @@ void childFunct(int *pipeF_C, int timeToWait){
 
 	char *string;
 	int len, j;
-	unsigned int seed = timeToWait;
+	unsigned int seed = timeToWait*getpid();
 
 	//close reading terminal of the pipe
 	close(pipeF_C[0]);
