@@ -19,10 +19,10 @@ struct rwStruct{            //structure for all the I/O operations
     char *string;
 };
 
-struct rwStruct rC1[STR_NUM];       //buff for reading messages from C1
-unsigned int indexC1 = 0;           //index to access rC1
-struct rwStruct rC2[STR_NUM];       //buff for reading messages from C2
-unsigned int indexC2 = 0;           //index to access rC2
+struct rwStruct *rC1;       //buff for reading messages from C1
+unsigned int indexC1 = 0;   //index to access rC1
+struct rwStruct *rC2;       //buff for reading messages from C2
+unsigned int indexC2 = 0;   //index to access rC2
 
 void fatherFunct(int pipesF2C[][2]);
 void childFunct(int *pipeF_C, int timeToWait);
@@ -71,7 +71,8 @@ int main(int argc, char *argv[]){
 //function designed for the father
 void fatherFunct(int pipesF2C[][2]){
 
-    struct aiocb *aiocbSC1, *aiocbSC2;        //arrays of control blocks
+    struct aiocb *aiocbSC1, *aiocbSC2;          //arrays of control blocks
+    struct rwStruct *rC1_temp, *rC2_temp;       //arrays of structure
     struct sigevent sigevS;     //how to be de notified
     int bytesRead;              //offset 
 
@@ -88,6 +89,17 @@ void fatherFunct(int pipesF2C[][2]){
         printf("Error allocationg aiocbS2\n");
         exit(1);
     }
+   if((rC1_temp = (struct rwStruct *)malloc(STR_NUM * sizeof(struct rwStruct))) == NULL){
+        printf("Error allocationg rC1_temp\n");
+        exit(1);
+    }
+   if((rC2_temp = (struct rwStruct *)malloc(STR_NUM * sizeof(struct rwStruct))) == NULL){
+        printf("Error allocationg rC2_temp\n");
+        exit(1);
+    }
+
+    rC1 = rC1_temp;
+    rC2 = rC2_temp;
 
     //request all asynchronous read
     for(int i=0; i<STR_NUM; i++){
@@ -121,7 +133,7 @@ void fatherFunct(int pipesF2C[][2]){
 
         //request read
         if(aio_read(&aiocbSC2[i]) < 0){
-            printf("Error requesting read for pipe 2\n");
+            printf("i: %d\tError requesting read for pipe 2\n", i);
             exit(1);
         }
 
