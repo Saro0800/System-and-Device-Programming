@@ -12,32 +12,33 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
-struct thread_arg{      //struct to be passed to each thread
+typedef struct thread_args_s{      //struct to be passed to each thread
     int id;                 //id assigned by the creator
     pthread_t TID;          //id assigned by the OS
-    int fd;                 //file to read from
-    unsigned int fileSize;  //size of the file
-};
+    void *src;              //portion of the memory to be read
+    size_t fileSize;  //size of the file
+}thread_args_t;
 
 #define MAX_LENGTH 30
 
-struct records_struct{  //struct for each line of the file
+typedef struct{  //struct for each line of the file
 	int id;                 //line identifier
 	long regNumber;         //identifier of each person
 	char surn[MAX_LENGTH];  //suranme
     char name[MAX_LENGTH];  //name
 	int mark;               //mark
-};
+}student_t;
 
 void *threadFunct(void *arg);
+void printBinFile(char *file);
 
 int main(int argc, char *argv[]){
 
-    struct thread_arg threadArgs[2];        //array with threads' arguments
+    thread_args_t threadArgs[2];        //array with threads' arguments
     char *filePath;
     int fd;
     struct stat sb;     //struct to retrieve all information of the file
-    void *status;
+    void *status, *src;
 
     if(argc < 2){
         printf("Missing parameter\n");
@@ -55,9 +56,21 @@ int main(int argc, char *argv[]){
         exit(1);
     }
 
+    printBinFile("orig_file");
+
+    //before creating the threads we must map the file in memory.
+    //we map the entire file. We cast the pointer returned from mmap into a student_t pointer.
+    //In this way we can deal with that region of memory as an array of elements of type
+    //student_t.
+    src = (student_t *) mmap(0, sb.st_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (src == MAP_FAILED) {
+        fprintf(stderr, "Error in mmpap\n");
+        exit(0);
+    }
+
     for(int i=0; i<2; i++){         //set the argument for each thread and crate it
         threadArgs[i].id = i+1;
-        threadArgs[i].fd = fd;
+        threadArgs[i].src = src;
         threadArgs[i].fileSize = sb.st_size;
 
         pthread_create(&threadArgs[i].TID, NULL, threadFunct, (void *)&threadArgs[i]);
@@ -71,58 +84,61 @@ int main(int argc, char *argv[]){
         exit(1);
     }
 
+    //unmap the region
+    munmap(src, sb.st_size);
+
+    //print the file
+    //printBinFile(filePath);
+
     return 0;
 
 }
 
 void *threadFunct(void *arg){
-    struct thread_arg *myArg = (struct thread_arg *) arg;
-    struct records_struct *record;
-    int bytesDone = 0;
-    size_t len = sizeof(struct records_struct);
-    off_t off;
+    thread_args_t *myArg = (thread_args_t *) arg;
+    student_t *student_d;
+    int n, nrecord, up_down;
 
-    printf("fileSize: %d\n", myArg->fileSize);
+    //since we already mapped the file in memory, we can handle it as an array
+    student_d = (student_t *)myArg->src;
+    nrecord = myArg->fileSize / sizeof(student_t);
+    up_down = myArg->id == 1 ? 1 : 0;
 
-    //loop untill we analized the entire file
-    while(bytesDone < myArg->fileSize){
-        if(myArg->id == 1)          //first thread start from the top of the file
-            off = bytesDone;
-        else if(myArg->id == 2)     //second thread start from the bottm of the file
-            off = myArg->fileSize - bytesDone - len;
-
-        printf("id: %d Offset %ld\n\n", myArg->id, off);
-
-        //map the file
-        if((record = mmap(0, len, PROT_READ | PROT_WRITE, MAP_SHARED, myArg->fd, off)) == MAP_FAILED){
-            printf("Failed mapping the file in T%d\n", myArg->id);
-            exit(1);
+    if(up_down == 1)   //first thread reads and writes top down
+        for(n=0; n<nrecord; n++){
+            student_d->regNumber++;     //modify regNumber
+            student_d++;        //move the pointer to the next element in array
         }
-
-        //manipulate the file
-        if(myArg->id == 1){
-            printf("id:%d  regNumber: %ld before\n", myArg->id, record->regNumber);
-            record->regNumber++;
-            printf("id:%d  regNumber: %ld after\n", myArg->id, record->regNumber);
+    else if(up_down == 0){  //second thread reads bottom up
+        student_d = student_d + nrecord - 1;    //since it reads bottom up, we start from the
+                                                //last element of the array
+        for(n=0; n<nrecord; n++){
+            student_d->mark--;  //modify mark
+            student_d--;        //move the pointer to the previous element in array
         }
-        else if(myArg->id == 2){
-            printf("id:%d  mark: %d before\n", myArg->id, record->mark);
-            record->mark--;
-            printf("id:%d  mark: %d after\n", myArg->id, record->mark);
-        }
-
-        //unmap the file region
-        if(munmap(record, len) < 0){
-            printf("Error unmapping the file in T%d\n", myArg->id);
-            exit(1);
-        }
-
-        bytesDone += len;       //update the amount of bytesProcessed
     }
 
     pthread_exit(NULL);
 }
 
+void printBinFile(char *file){
+    student_t stud;
+    int fd;
+
+    if((fd = open(file, O_RDONLY)) < 0){
+        fprintf(stderr, "Error trying to read the file %s\n", file);
+        exit(1);
+    }
+
+    while(read(fd, &stud, sizeof(student_t)) > 0){
+        fprintf(stdout, "%d %ld %s %s %d\n", stud.id, stud.regNumber, stud.name, stud.surn, stud.mark);
+    }
+
+    if(close(fd) < 0){
+        fprintf(stderr, "Error trying to close the file %s\n", file);
+        exit(1);
+    }
+}
 
 
 
