@@ -3,11 +3,11 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-#define MAX_LENGTH 15
+#define MAX_LENGTH 31
 
 typedef struct{
 	int id;
-	long regNumber;
+	long int regNumber;
 	char surn[MAX_LENGTH], name[MAX_LENGTH];
 	int mark;
 }records_struct;
@@ -23,7 +23,7 @@ int main(int argc, char *argv[]){
 		fprintf(stdout, "Missing parameters (%d/3)\n", argc-1);
 		exit(1);
 	}
-	
+
 	//getting parameter
 	file_1 = argv[1];
 	file_2 = argv[2];
@@ -53,10 +53,13 @@ void text_2_Binary(char *file_1, char *file_2){
 		exit(1);
 	}
 
-	while(fscanf(fp1, "%d %li %s %s %d\n",
+	while(fscanf(fp1, "%d %ld %s %s %d\n",
 				 &records.id, &records.regNumber, records.surn,
 				 records.name, &records.mark) != EOF ){
-		int nW = write(fd2, &records, sizeof(records_struct));
+		if(write(fd2, &records, sizeof(records_struct)) != sizeof(records_struct)){
+			printf("Error printing text_2_binary\n");
+			exit(1);
+		}
 	}
 	
 	fclose(fp1);
@@ -69,7 +72,7 @@ void binary_2_text(char *file_2, char *file_3){
 	records_struct records;		//struct to read/write files
 	FILE *fp3;		//file pointer for the ISO C write
 	int fd2;		//file descriptor for POSIX read
-	int nR, nW;
+	int nR;
 
 	fp3 = fopen(file_3,"w");	//open file_3 (ISO C)
 	if(fp3 == NULL){
@@ -85,7 +88,7 @@ void binary_2_text(char *file_2, char *file_3){
 	}
 	
 	while( (nR = read(fd2, &records, sizeof(records_struct))) > 0 )
-		fprintf(fp3, "%d %li %s %s %d\n",
+		fprintf(fp3, "%d %ld %s %s %d\n",
 				 records.id, records.regNumber, records.surn,
 				 records.name, records.mark );
 	fclose(fp3);

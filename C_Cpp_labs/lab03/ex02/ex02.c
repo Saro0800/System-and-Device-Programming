@@ -11,6 +11,7 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <string.h>
 
 typedef struct thread_args_s{      //struct to be passed to each thread
     int id;                 //id assigned by the creator
@@ -19,11 +20,11 @@ typedef struct thread_args_s{      //struct to be passed to each thread
     size_t fileSize;  //size of the file
 }thread_args_t;
 
-#define MAX_LENGTH 30
+#define MAX_LENGTH 31
 
 typedef struct{  //struct for each line of the file
 	int id;                 //line identifier
-	long regNumber;         //identifier of each person
+	long int regNumber;         //identifier of each person
 	char surn[MAX_LENGTH];  //suranme
     char name[MAX_LENGTH];  //name
 	int mark;               //mark
@@ -56,7 +57,9 @@ int main(int argc, char *argv[]){
         exit(1);
     }
 
-    printBinFile("orig_file");
+    printf("Before changes: \n");
+    printBinFile(filePath);
+    printf("\n\n");
 
     //before creating the threads we must map the file in memory.
     //we map the entire file. We cast the pointer returned from mmap into a student_t pointer.
@@ -88,7 +91,8 @@ int main(int argc, char *argv[]){
     munmap(src, sb.st_size);
 
     //print the file
-    //printBinFile(filePath);
+    printf("After changes: \n");
+    printBinFile(filePath);
 
     return 0;
 
@@ -140,5 +144,37 @@ void printBinFile(char *file){
     }
 }
 
+/*
+int main(int argc, char *argv[]){
+    char *filePath;
+    int fd;
+    student_t stud;
 
+    if(argc < 2){
+        printf("Missing parameter\n");
+        exit(1);
+    }
+
+    filePath = strdup(argv[1]);             //get the path of the input file
+    printf("File: %s\n", filePath);
+    if((fd = open(filePath, O_RDONLY)) < 0){      //open the file for reading and writing
+        printf("Error opening file %s\n", filePath);
+        exit(1);
+    }
+
+    while(read(fd, &stud, sizeof(student_t)) > 0){
+        printf("%d ", stud.id);
+        printf("%ld ", stud.regNumber);
+        printf("%s ", stud.surn);
+        printf("%s ", stud.name);
+        printf("%d\n", stud.mark);
+    }
+
+    if(close(fd) < 0){
+        fprintf(stderr, "Error trying to close the file %s\n", filePath);
+        exit(1);
+    }
+
+}
+*/
 
