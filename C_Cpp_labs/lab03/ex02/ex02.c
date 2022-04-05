@@ -144,37 +144,4 @@ void printBinFile(char *file){
     }
 }
 
-/*
-int main(int argc, char *argv[]){
-    char *filePath;
-    int fd;
-    student_t stud;
-
-    if(argc < 2){
-        printf("Missing parameter\n");
-        exit(1);
-    }
-
-    filePath = strdup(argv[1]);             //get the path of the input file
-    printf("File: %s\n", filePath);
-    if((fd = open(filePath, O_RDONLY)) < 0){      //open the file for reading and writing
-        printf("Error opening file %s\n", filePath);
-        exit(1);
-    }
-
-    while(read(fd, &stud, sizeof(student_t)) > 0){
-        printf("%d ", stud.id);
-        printf("%ld ", stud.regNumber);
-        printf("%s ", stud.surn);
-        printf("%s ", stud.name);
-        printf("%d\n", stud.mark);
-    }
-
-    if(close(fd) < 0){
-        fprintf(stderr, "Error trying to close the file %s\n", filePath);
-        exit(1);
-    }
-
-}
-*/
 
