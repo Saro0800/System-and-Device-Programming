@@ -1,4 +1,6 @@
 // in this implementation the 5th rule has been considered
+//AN EMPIRICAL LAW HAS BEEN FOUND TO COUNT HOW MANY THREADS FINISH AT EACH ITERATION
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
