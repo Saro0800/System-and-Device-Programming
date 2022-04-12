@@ -5,8 +5,7 @@
 #include <pthread.h>
 #include <semaphore.h>
 
-unsigned int ent = 0;           //number of element that reached the barrier
-unsigned int ext = 0;           //number of element that reached the barrier
+unsigned int count = 0;           //number of element that reached the barrier
 pthread_mutex_t *mutex_count;   //mutex to access and modify count
 sem_t *in_barrier;              //semaphore to create an entrance barrier
 sem_t *out_barrier;             //semaphore to create an exit barrier
@@ -25,19 +24,19 @@ void *thread_function(void *);
 int main(int argc, char *argv[]){
 
     setbuf(stdout, 0);
-    unsigned int exp = 4;
+    unsigned int exp;
     unsigned long int n_elem;
     int *elements;
     pthread_mutex_t *mutex_temp;    //mutex to access and modify count
     sem_t *barrier_temp;            //semaphore to create an entrance/exit barrier
     thread_arg_t *thread_args;      //array of structure
-/*
+
     if(argc < 2){
         fprintf(stdout, "Missing parameter\n");
         exit(1);
     }
 
-    exp = atoi(argv[1]); */           //take n
+    exp = atoi(argv[1]);            //take n
     n_elem = 1 << exp;              //compute the total number of elements
     elements = gen_elements(exp);   //generate the sequence of random elements
 
@@ -89,10 +88,10 @@ int main(int argc, char *argv[]){
         pthread_create(&thread_args[i].tid, NULL, thread_function, (void *)&thread_args[i]);
     }
 
-    //printf("%d ", elements[0]);
+    printf("%d ", elements[0]);
     for(int i=0; i<n_elem-1; i++){
         pthread_join(thread_args[i].tid, NULL);
-        //printf("%d ", elements[thread_args[i].id]);
+        printf("%d ", elements[thread_args[i].id]);
     }
     printf("\n");
 
@@ -102,46 +101,46 @@ int main(int argc, char *argv[]){
 void *thread_function(void *args){
     thread_arg_t *arg = (thread_arg_t *)args;
     int num_iter = 0;
-    int i, gap, prev, term = 0;
+    int i, gap = 1, prev, term = 0;
 
     while(num_iter < arg->n_iter){
-        //sleep(2);
-        gap = 1 << num_iter;    //distance between the two elements
-        if( (arg->id - gap) >= 0 ){
-            //printf("num_iter:%d id:%d gap:%d id-gap:%d\n", num_iter, arg->id, gap, arg->id-gap);
-            prev = arg->elements[arg->id - gap];    //take the second element
-        }else{
-            //printf("iter:%d  T:%d finished\n", num_iter, arg->id);
-            break;
-        }
+        sleep(1);
 
-        if(num_iter > 0)
-            term += 1 << (num_iter - 1);
-        
-        
+        prev = arg->elements[arg->id - gap];
+
         pthread_mutex_lock(mutex_count);      //trying to acquire the mutex
-        ent++;                        //update number of threads stuck at the barrier
-        printf("%d ",ent);
-        if(ent == (arg->n_threads - term)){    //the last thread unlocks all the others
+        count++;                        //update number of threads stuck at the barrier
+        //printf("%d ",count);
+        if(count == (arg->n_threads - term)){    //the last thread unlocks all the others
             for(i=0; i<(arg->n_threads - term); i++)
                 sem_post(in_barrier);
-            printf("iter:%d ent_i:%d\n", num_iter, i);         
-            ent = 0;                  //update number of threads stuck at the barrier
+            //printf("iter:%d ent_i:%d\n", num_iter, i);         
+            count = 0;                  //update number of threads stuck at the barrier
         }
         pthread_mutex_unlock(mutex_count);    //release the mutex
+        //printf("iter:%d  T:%d stuck at entrance barrier\n", num_iter, arg->id);
         sem_wait(in_barrier);           //wait at the barrier to be unstucked
 
         arg->elements[arg->id] = arg->elements[arg->id] + prev;
 
+        gap = 1 << (num_iter + 1);    //distance between the two elements at next iteration
+        if( (arg->id - gap) < 0 ){
+            //printf("iter:%d  T:%d finished\n", num_iter, arg->id);
+            pthread_exit(NULL);
+        }
+        
+        term += 1 << num_iter;      //EMPIRICAL LAW TO COUNT HOW MANY THREADS FINISH
+
         pthread_mutex_lock(mutex_count);      //trying to acquire the mutex
-        ext++;                        //update number of threads stuck at the barrier
-        if(ext == (arg->n_threads - term)){    //the last thread unlocks all the others
+        count++;                        //update number of threads stuck at the barrier
+        if(count == (arg->n_threads - term)){    //the last thread unlocks all the others
             for(i=0; i<(arg->n_threads - term); i++)
                 sem_post(out_barrier);
-            printf("iter:%d ext_i:%d\n", num_iter, i);
-            ext = 0;                  //update number of threads stuck at the barrier
+            //printf("iter:%d ext_i:%d\n", num_iter, i);
+            count = 0;                  //update number of threads stuck at the barrier
         }
         pthread_mutex_unlock(mutex_count);    //release the mutex
+        //printf("iter:%d  T:%d stuck at exit barrier\n", num_iter, arg->id);
         sem_wait(out_barrier);           //wait at the barrier to be unstucked
 
         num_iter++;
