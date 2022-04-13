@@ -92,6 +92,10 @@ int main(int argc, char *argv[]){
     }
 
     //merge all files
+    if(write(fd, &n_total, sizeof(int)) < 0){
+        printf("Error in main writing total size\n");
+        exit(1);
+    }
     for(i=0; i<n_total; i++){
         min = getMin(num_in_files, taken, max, ordered_arrays);
         if(write(fd, &min, sizeof(int)) < 0){
@@ -109,12 +113,16 @@ int main(int argc, char *argv[]){
             printf("Error in main opening merged file for printing\n");
             exit(1);
         }
-        printf("\nAll merged files (%d elements):\n", n_total);
+        printf("\nAll merged files :\n");
         for(i=0; i<n_total; i++){
+            if(read(fd, &min, sizeof(int)) < 0){
+                printf("Error in main reading size of merged files\n");
+                exit(1);
+            }
             if(read(fd, &min, sizeof(int)) < 0){
                 printf("Error in main printing merged file\n");
                 exit(1);
-            };
+            }
             printf("%d ", min);
         }
         printf("(%d elements)\n", n_total);
