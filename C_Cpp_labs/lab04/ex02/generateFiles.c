@@ -66,7 +66,7 @@ void *generateFile(void *arg){
     //retrieve argument
     thread_arg_t *myArg = (thread_arg_t *)arg;
     unsigned int seed = myArg->TID;                 //create seed to randomly generate all numbers
-    unsigned int n_elem = rand_r(&seed) % 1000 + 1;    //generate the number of elements
+    unsigned int n_elem = rand_r(&seed) % 100000 + 1;    //generate the number of elements
     int fd;     //file descriptor
     int nw, tmp;
 
