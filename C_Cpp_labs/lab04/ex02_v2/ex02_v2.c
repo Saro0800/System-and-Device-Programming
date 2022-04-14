@@ -4,6 +4,8 @@
 #include <fcntl.h>
 #include <pthread.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <sys/mman.h>
 
 #define DEBUG_PRINT 0
 #define DEBUG_PRINT_1 0
@@ -14,7 +16,7 @@
 typedef struct thread_arg_s{
     unsigned int id, n_elem;
     pthread_t tid;
-    int *elements;
+    int *file_content, *elements;
     char *filePath;
 }thread_arg_t;
 
@@ -134,7 +136,8 @@ int main(int argc, char *argv[]){
 
 void *threadFunc(void *arg){
     thread_arg_t *myArg = (thread_arg_t *)arg;
-    int fd, nr, i;
+    int fd, i;
+    struct stat st;
 
     //open the file
     fd = open(myArg->filePath, O_RDONLY);
@@ -145,31 +148,49 @@ void *threadFunc(void *arg){
     else if(DEBUG_PRINT)
         printf("T%d correctly opened file %s\n", myArg->id, myArg->filePath);
 
-    //read the number of elements in the file
-    nr = read(fd, &myArg->n_elem, sizeof(int));
-    if(nr < 0){
-        printf("T%d failed reading number of elements from file %s\n", myArg->id, myArg->filePath);
+    //retrieve information about the file
+    if(stat(myArg->filePath, &st) < 0){
+        printf("T%d failed retrieving information about %s\n", myArg->id, myArg->filePath);
         pthread_exit(NULL);
     }
-    else if(DEBUG_PRINT)
+
+    //map the file into the memory
+    myArg->file_content = (int *)mmap(NULL, st.st_size, PROT_READ, MAP_SHARED, fd, SEEK_SET);
+
+    //read the number of elements in the file
+    myArg->n_elem = *myArg->file_content;
+    myArg->file_content++;  //point to the first element
+    if(DEBUG_PRINT)
         printf("T%d has to read %d elements from file %s\n", myArg->id, myArg->n_elem, myArg->filePath);
 
     //alloc the array of integers
     myArg->elements = (int *)malloc(myArg->n_elem * sizeof(int));
-    for(i=0; i<myArg->n_elem; i++){
-        nr = read(fd, &myArg->elements[i], sizeof(int));     //read an integer
-        if(nr < 0){
-            printf("T%d failed reading a number from file %s\n", myArg->id, myArg->filePath);
-            pthread_exit(NULL);
-        }
+    if(myArg->elements == NULL){
+        printf("T%d failed allocating the array of integers\n", myArg->id);
+        pthread_exit(NULL);
     }
+
+    //get the array of integers
+    for(i=0; i<myArg->n_elem; i++){
+        myArg->elements[i] = *myArg->file_content;
+        myArg->file_content++;
+    }
+/*
+    //after having allocated and get the content of the file, it can be unmapped
+    if(munmap(myArg->file_content, st.st_size) < 0){
+        printf("T%d failed unmapping the file\n", myArg->id);
+        pthread_exit(NULL);
+    }
+*/
+    //close the file
+    close(fd);
 
     if(DEBUG_PRINT_1){
         pthread_mutex_lock(&mutex_to_print);
         printf("\nT%d file:\n", myArg->id);
         for(i=0; i<myArg->n_elem; i++)
             printf("%d ", myArg->elements[i]);
-        printf("\n");
+        printf("\n\n");
         pthread_mutex_unlock(&mutex_to_print);
     }
 
@@ -194,9 +215,6 @@ void *threadFunc(void *arg){
         printf("\n");
         pthread_mutex_unlock(&mutex_to_print);
     }
-
-    //close the file
-    close(fd);
 
     pthread_exit(NULL);
 }

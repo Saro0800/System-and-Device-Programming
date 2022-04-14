@@ -214,6 +214,3 @@ int getMin(int num, int *taken, int *max, int **arrays){
     taken[arr_min]++;
     return min;
 }
-
-
-
