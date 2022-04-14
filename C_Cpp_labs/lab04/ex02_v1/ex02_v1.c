@@ -1,3 +1,6 @@
+/*
+    Version 1 : blocking I/O operations
+*/
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
