@@ -13,7 +13,7 @@
 #define deb_print_lv2 0
 
 #define SHM_SIZE 1024       //size of the chunk of shared memory
-#define TIMES 3             //number of loop
+#define TIMES 10000         //number of loop
 #define N_BYTES 20          //length of the messages
 
 typedef struct msg_s{       //structure defining the message
@@ -99,7 +99,6 @@ void P1_fcn(int shm_id, int msgq_id){
     int i, ret;
     unsigned int size;
     char *shared_mem;       //chunk of shared memory
-    char *tmp_string;
     msg_t *msg = (msg_t *)malloc(sizeof(msg_t));    //struct to send an receive messages
 
     //attach the shared memory
@@ -116,7 +115,7 @@ void P1_fcn(int shm_id, int msgq_id){
 
         //wake up P2 by sending it a message
         msg->mtype = (long ) P1_msg;                         //set the message type
-        sprintf(tmp_string, "P1_done: %d", size);            //write the message text
+        sprintf(msg->msgtxt, "P1_done: %d", size);            //write the message text
         ret = msgsnd(msgq_id, (void *)msg, sizeof(msg_t), 0);   //enqueue the message
         if(ret < 0){        //check for error
             perror("P1 failed sending a message\n");
@@ -146,7 +145,6 @@ void P2_fcn(int shm_id, int msgq_id){
     int i, ret;
     unsigned int size;
     char *shared_mem;       //chunk of shared memory
-    char *tmp_string;
     msg_t *msg = (msg_t *)malloc(sizeof(msg_t));    //struct to send an receive messages
 
     //attach the shared memory
@@ -163,7 +161,7 @@ void P2_fcn(int shm_id, int msgq_id){
             perror("P2 failed receiving a message\n");
             exit(1);
         }
-        sscanf(tmp_string, "P1_done: %d", &size);
+        sscanf(msg->msgtxt, "P1_done: %d", &size);
         //print the message
         printf("\n\nP2: size: %d\n", size);
         read_shm(shared_mem, size);
@@ -176,7 +174,7 @@ void P2_fcn(int shm_id, int msgq_id){
         generate_random_shm(shared_mem, size);
         //wake up P1 by sending it a message
         msg->mtype = (long int)P2_msg;                          //set msg type
-        sprintf(tmp_string, "P2_done: %d", size);               //set msg text
+        sprintf(msg->msgtxt, "P2_done: %d", size);               //set msg text
         ret = msgsnd(msgq_id, (void *)msg, sizeof(msg_t), 0);   //send the message
         if(ret < 0){
             perror("P2 failed sending a message\n");
