@@ -217,7 +217,3 @@ void read_shm(char* shm, unsigned int len){
     }
 }
 
-
-
-
-
