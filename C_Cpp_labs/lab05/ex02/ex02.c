@@ -1,3 +1,6 @@
+/*
+    Version 2 : memory mapped I/O
+*/
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -5,203 +8,197 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <unistd.h>
+#include <limits.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
 #include <sys/ipc.h>
 #include <sys/msg.h>
 #include <sys/types.h>
 
-extern int errno;
+#define DEBUG_PRINT 0
+#define DEBUG_PRINT_1 0
+#define DEBUG_PRINT_2 0
+#define DEBUG_PRINT_3 1
+#define DEBUG_PRINT_4 0
 
-pthread_mutex_t mutex_thFinished = PTHREAD_MUTEX_INITIALIZER;
+typedef struct thread_arg_s{
+    unsigned int id, n_elem;
+    pthread_t tid;
+    int *file_content, *elements;
+    char *filePath;
+    int *th_finished;
+}thread_arg_t;
+
+pthread_mutex_t mutex_to_print = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutex_thSignaling = PTHREAD_MUTEX_INITIALIZER;
 
-typedef struct ord_th_s{    //structure for the oredering threads
-    int id;             //id assigned by the main
-    int n_elem;         //number of elements
-    int *file_cont;     //content of the file
-    int *elements;      //array of the elements
-    int *th_finished;   //array of flags to know which one finished
-    pthread_t TID;      //real TID
-    char *filePath;     //path of the file
-}ord_th_t;
-
-void *thFcnOrder(void *);       //function executed by the ordering threads
-int *merge2arr(int *, int, int *, int); //merge 2 arrays
+void *threadFunc(void *arg);
+int *merge2arr(int *arr1, int size1, int *arr2, int size2);
 
 int main(int argc, char *argv[]){
-    setbuf(stdout, 0);
-    //check if at least 1 in e 1 out files have been inserted
+
+    //check for parameters
     if(argc < 3){
-        printf("Not enough paramaters: %d passed\n", argc-1);
+        printf("Not enough parameters\n");
         exit(1);
     }
 
-    int i, ret, merg_active = 0;
-    int msg_received = 0;
-    int num_in_files = argc - 2;    //num of inpt files
-    int *th_finished;               //array of flags to know which one finished
-    char *outFile;                  //output files
-    ord_th_t *th_args;              //array of structures containing parameters to be passed to ord th
-    int tot_elem = 0;               //total number of elements read from files
+    int i, min, num_in_files = argc - 2;    //first one is the name of the program, last one is the out file
+    int **ordered_arrays, *max, *taken;
+    int *th_finished_arr;
+    int n_total = 0, fd;
+    char **in_files, *out_file;
+    thread_arg_t *args_array;
 
-    //take the output file
-    outFile = strdup(argv[argc-1]);
+    in_files = (char **)malloc(num_in_files * sizeof(char *));  //allocate the array of strings
+    for(i=0; i<num_in_files; i++)
+        in_files[i] = strdup(argv[i+1]);    //allocate and init each input string
+
+    out_file = strdup(argv[argc-1]);        //allocate and init the output string
+
+    if(DEBUG_PRINT){
+        printf("Input files:\n");
+        for(i=0; i<num_in_files; i++)
+            printf("%s\n", in_files[i]);
+        printf("\nOutput file:\n%s\n\n", out_file);
+    }
 
     //allocate the array of flags
-    th_finished = (int *)malloc(num_in_files * sizeof(int));
-    if(th_finished == NULL){
-        perror("Main failed allocating th_finished: ");
-        exit(1);
-    }
-    
-    //allocate the argument array
-    th_args = (ord_th_t *)malloc(num_in_files * sizeof(ord_th_t));
-    if(th_args == NULL){
-        perror("Main failed allocating th_args: ");
-        exit(1);
-    }
+    th_finished_arr = (int *)malloc(num_in_files * sizeof(int));
 
-    //init the array and launch the threads
+    //allocate the array of arguments for the threads
+    args_array = (thread_arg_t *)malloc(num_in_files * sizeof(thread_arg_t));
+    //init the arguments for each thread and create it
     for(i=0; i<num_in_files; i++){
-        th_args[i].id = i;
-        th_args[i].filePath = strdup(argv[i+1]);
-        th_args[i].th_finished = th_finished;
-        //printf("%s\n", th_args[i].filePath);
-        pthread_create(&th_args[i].TID, NULL, thFcnOrder, (void *)&th_args[i]);
-    }
+        args_array[i].id = i;
+        args_array[i].filePath = in_files[i];
+        args_array[i].th_finished = th_finished_arr;
+        pthread_create(&args_array[i].tid, NULL, threadFunc, (void *)&args_array[i]);
+    }    
 
-    int *taken = (int *)calloc(num_in_files, sizeof(int));
-    int *finish_seq = (int *)calloc(num_in_files, sizeof(int));
+    int th_finished = 0;
+    int *end_order;
     int *tmp;
+    int *merg_done;
 
-    //until all threads end
-    while(msg_received < num_in_files){
+    taken = (int *)calloc(num_in_files, sizeof(int));
+    end_order = (int *)calloc(num_in_files, sizeof(int));
+    merg_done = (int *)calloc(num_in_files-1, sizeof(int));
+
+    while(th_finished < num_in_files){
         pthread_mutex_lock(&mutex_thSignaling);
-        //keep polling the array of flags, searching the first thread terminated
         for(i=0; i<num_in_files; i++)
-            if(th_finished[i]==1 && taken[i]==0){   //taken[i]=1 means 'termination already seen'
-                finish_seq[msg_received] = i;       //if a new thread terminated, put it in the queue
-                msg_received++;                     //update num of thread terminated
-                tot_elem += th_args[i].n_elem;      //update num of total elements
-                taken[i]=1;                         //save that thread termination has been already seen
-                /*printf("%d\n", th_args[i].n_elem);
-                for(int j=0; j<th_args[i].n_elem; i++)
-                    printf("%d ", th_args[i].elements[j]);*/
-                
+            if(th_finished_arr[i]==1 && taken[i]==0){
+                taken[i] = 1;
+                end_order[th_finished] = i;
+                n_total += args_array[i].n_elem;
+                th_finished++;
+                /*
+                printf("T%d finished: \n", i);
+                for(int j=0; j<args_array[i].n_elem; j++)
+                    printf("%d ", args_array[i].elements[j]);
+                printf("\n\n");
+                */
                 break;
             }
         pthread_mutex_unlock(&mutex_thSignaling);
 
-        if(msg_received == 2)       //first time merge 2 'original' arrays
-            tmp = merge2arr(th_args[finish_seq[0]].elements, th_args[finish_seq[0]].n_elem, 
-                            th_args[finish_seq[1]].elements, th_args[finish_seq[1]].n_elem);
-        else if(msg_received > 2)   //next times merge 1 'original' array and the previous result
-            tmp = merge2arr(th_args[finish_seq[msg_received-1]].elements, 
-                            th_args[finish_seq[msg_received-1]].n_elem, 
-                            tmp, tot_elem - th_args[finish_seq[msg_received-1]].n_elem);
+        if(th_finished == 2 && merg_done[th_finished-2]!=1){
+            tmp = merge2arr(args_array[end_order[0]].elements, args_array[end_order[0]].n_elem,
+                            args_array[end_order[1]].elements, args_array[end_order[1]].n_elem);
+            //printf("merging T%d and T%d\n", end_order[0], end_order[1]);
+            merg_done[th_finished-2] = 1;
+        }
+        else if(th_finished > 2 && merg_done[th_finished-2]!=1){
+            tmp = merge2arr(tmp, n_total - args_array[end_order[th_finished-1]].n_elem,
+                            args_array[end_order[th_finished-1]].elements, 
+                            args_array[end_order[th_finished-1]].n_elem);
+            //printf("merging TMP and T%d\n", end_order[th_finished-1]);
+            merg_done[th_finished-2] = 1;
+        }
 
     }
-/*
-    for(i=0; i<tot_elem; i++)
-        printf("%d ", tmp[i]);
-*/    
-    int fd = open(outFile, O_WRONLY | O_CREAT | O_TRUNC, S_IRWXU | S_IRWXG);
+    
+    //./ex02_v2 ./tmp/file1.bin ./tmp/file2.bin ./tmp/file3.bin ./tmp/file4.bin ./tmp/file5.bin ./tmp/file6.bin ./tmp/file7.bin ./tmp/file8.bin ./tmp/file9.bin ./tmp/file10.bin ./tmp/fileOut.bin 
+
+    //open output file
+    fd = open(out_file, O_RDWR | O_CREAT | O_TRUNC, S_IRWXU | S_IRWXG | S_IRWXO);
     if(fd < 0){
-        perror("Error opening the file for writing\n");
+        printf("Error  in main opening the output file\n");
         exit(1);
     }
-    for(i=0; i<tot_elem; i++)
+
+    for(i=0; i<n_total; i++)
         write(fd, &tmp[i], sizeof(int));
-    close(fd);
-/*
-    fd = open(outFile, O_RDONLY);
-    if(fd < 0){
-        perror("Error opening the file for reading\n");
-        exit(1);
-    }
-    for(i=0; i<tot_elem; i++){
-        read(fd, &tmp[i], sizeof(int));
-        printf("%d ", tmp[i]);
-    }
-        
-    close(fd);
-*/
 
     return 0;
 }
 
-void *thFcnOrder(void *args){
-    int fd, ret;
-    int max, pos_max, i, j;
-    struct stat st;                     //structure for file information
-    ord_th_t *arg = (ord_th_t *)args;   //retrieve the argument
+void *threadFunc(void *arg){
+    thread_arg_t *myArg = (thread_arg_t *)arg;
+    int fd, i;
+    struct stat st;
 
-    //main thread will not wait orgering threads, so we can detach them
-    pthread_detach(arg->TID);
+    pthread_detach(myArg->tid);
 
     //open the file
-    fd = open(arg->filePath, O_RDONLY);
+    fd = open(myArg->filePath, O_RDONLY);
     if(fd < 0){
-        perror("Thread failed opening file: ");
-        exit(1);
+        printf("T%d failed opening file %s\n", myArg->id, myArg->filePath);
+        pthread_exit(NULL);
     }
+    else if(DEBUG_PRINT)
+        printf("T%d correctly opened file %s\n", myArg->id, myArg->filePath);
 
     //retrieve information about the file
-    ret = stat(arg->filePath, &st);
-    if(ret < 0){
-        perror("Thread failed retrieving information about input file: ");
-        exit(1);
+    if(stat(myArg->filePath, &st) < 0){
+        printf("T%d failed retrieving information about %s\n", myArg->id, myArg->filePath);
+        pthread_exit(NULL);
     }
 
-    //map the file in memory
-    arg->file_cont = (int *)mmap(NULL, st.st_size, PROT_READ, MAP_SHARED, fd, SEEK_SET);
-    if(arg->file_cont == MAP_FAILED){
-        perror("Thread failed mapping the file in memory: ");
-        exit(1);
+    //map the file into the memory
+    myArg->file_content = (int *)mmap(NULL, st.st_size, PROT_READ, MAP_SHARED, fd, SEEK_SET);
+
+    //read the number of elements in the file
+    myArg->n_elem = *myArg->file_content;
+    myArg->file_content++;  //point to the first element
+    if(DEBUG_PRINT)
+        printf("T%d has to read %d elements from file %s\n", myArg->id, myArg->n_elem, myArg->filePath);
+
+    //alloc the array of integers
+    myArg->elements = (int *)malloc(myArg->n_elem * sizeof(int));
+    if(myArg->elements == NULL){
+        printf("T%d failed allocating the array of integers\n", myArg->id);
+        pthread_exit(NULL);
     }
 
-    //retrieve the number of elements
-    arg->n_elem = *(arg->file_cont++);
-    //printf("%d\n", arg->n_elem);
+    //get the array of integers
+    for(i=0; i<myArg->n_elem; i++){
+        myArg->elements[i] = *myArg->file_content;
+        myArg->file_content++;
+    }
 
-    //allocate and init the array of elements
-    arg->elements = (int *)malloc(arg->n_elem * sizeof(int));
-    if(arg->elements == NULL){
-        perror("Thread failed allocating the array of elements: ");
-        exit(1);
-    }
-    //arg->elements = arg->file_cont;
-    for(i=0; i<arg->n_elem; i++){
-        arg->elements[i] = arg->file_cont[i];
-        printf("%d ", arg->elements[i]);
-    }
-    //printf("%d\n", i);
+    //close the file
+    close(fd);
 
     //order the array using the bubble sort algorithm
-    for(i=0; i<arg->n_elem; i++){
-        max = -1024;
-        for(j=0; j<arg->n_elem-i; j++)
-            if(arg->elements[j] > max){
-                max = arg->elements[j];
+    int max, pos_max, j;
+    for(i=0; i<myArg->n_elem; i++){
+        max = -1;
+        for(j=0; j<myArg->n_elem-i; j++)
+            if(myArg->elements[j] > max){
+                max = myArg->elements[j];
                 pos_max = j;
             }
-        arg->elements[pos_max] = arg->elements[j - 1];
-        arg->elements[j - 1] = max;
+        myArg->elements[pos_max] = myArg->elements[j-1]; 
+        myArg->elements[j-1] = max;
     }
-/*
-    printf("%d\n", i);
-    for(int i=0; i<arg->n_elem; i++)
-        printf("%d ", arg->elements[i]);
-*/
 
-    //the thread signals that it finished
     pthread_mutex_lock(&mutex_thSignaling);
-    arg->th_finished[arg->id] = 1;
+    myArg->th_finished[myArg->id] = 1;
     pthread_mutex_unlock(&mutex_thSignaling);
 
-    //pthread_exit(0);
-
+    //pthread_exit(NULL);
 }
 
 int *merge2arr(int *arr1, int size1, int *arr2, int size2){
@@ -209,23 +206,25 @@ int *merge2arr(int *arr1, int size1, int *arr2, int size2){
     int taken1=0, taken2=0, min;
 
     if(tmp == NULL){
-        perror("Allocating tmp array: ");
+        perror("Failed allocating tmp array: ");
         exit(1);
     }
 
     for(int i=0;i<size1+size2; i++){
-        if(taken2 >= size2)             //if there are no other values from arr2
-            tmp[i] = arr1[taken1++];    //take directly form arr1
-        else if(taken1 >= size1)        //if there are no other values from arr1
-            tmp[i] = arr2[taken2++];    //take directly form arr2
-        else if(arr1[taken1] < arr2[taken2])
-            tmp[i] = arr1[taken1++];
-        else if(arr2[taken2] < arr1[taken1])
+        if(taken1 >= size1)
             tmp[i] = arr2[taken2++];
-        //printf("%d ", tmp[i]);
-    }/*
+        else if(taken2 >= size2)
+            tmp[i] = arr1[taken1++];
+        else if(arr1[taken1] <= arr2[taken2])
+            tmp[i] = arr1[taken1++];
+        else 
+            tmp[i] = arr2[taken2++];
+    }
     free(arr1);
     free(arr2);
-*/
+
     return tmp;
 }
+
+
+
